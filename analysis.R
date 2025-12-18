@@ -351,6 +351,59 @@ fit <- sem(model,
 summary(fit, fit.measures = TRUE, standardized = TRUE)
 
 
+# --- CFA Model Fit Export to Word ---
+
+library(lavaan)
+library(flextable)
+library(officer)
+library(dplyr)
+
+# Define CFA model (measurement only)
+cfa_model <- '
+Perceived_Usefulness =~ PU_1 + PU_2 + PU_3 + PU_4 + PU_5
+Perceived_Ease_of_Use =~ PEOU_1 + PEOU_2 + PEOU_3 + PEOU_4 + PEOU_5
+Willingness_to_Use =~ WTU_1 + WTU_2 + WTU_3 + WTU_4 + WTU_5
+Availability_of_EV_Infrastructure =~ AOI_1 + AOI_2 + AOI_3 + AOI_4 + AOI_5
+Role_of_Government_Intervention =~ ROGI_1 + ROGI_2 + ROGI_3 + ROGI_4 + ROGI_5
+Environmental_Concern =~ EC_1 + EC_2 + EC_3 + EC_4 + EC_5
+Perceived_Risk =~ PR_1 + PR_2 + PR_3 + PR_4 + PR_5
+Social_Influence =~ SCI_1 + SCI_2 + SCI_3 + SCI_4 + SCI_5
+'
+
+# Fit CFA model
+fit_cfa <- cfa(cfa_model,
+               data = sem_data,
+               estimator = "WLSMV",
+               ordered = colnames(sem_data)[sapply(sem_data, is.factor)])
+
+# Extract fit indices
+cfa_fit_measures <- fitMeasures(fit_cfa, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea", "srmr"))
+
+# Create a data frame for Word
+cfa_fit_df <- data.frame(
+  Index = c("Chi-square (χ²)", "Degrees of Freedom", "p-value", "CFI", "TLI", "RMSEA", "SRMR"),
+  Value = round(unname(cfa_fit_measures), 3)
+)
+
+# Create flextable
+ft_cfa <- flextable(cfa_fit_df) %>%
+  set_caption("Table: CFA Model Fit Indices") %>%
+  autofit() %>%
+  fontsize(size = 12, part = "all") %>%
+  font(fontname = "Times New Roman", part = "all") %>%
+  align(align = "center", part = "all") %>%
+  border_outer(part = "all", border = fp_border(color = "black")) %>%
+  border_inner_h(border = fp_border(color = "black")) %>%
+  border_inner_v(border = fp_border(color = "black"))
+
+# Export to Word
+doc <- read_docx() %>%
+  body_add_par("CFA Model Fit Indices", style = "heading 1") %>%
+  body_add_flextable(ft_cfa)
+
+print(doc, target = "CFA_Model_Fit.docx")
+
+
 library(officer)
 library(flextable)
 
@@ -809,21 +862,24 @@ library(dplyr)
 library(flextable)
 library(officer)
 
-# --- Extract Standardized Estimates & Significance Levels ---
+# --- Extract Standardized Estimates, SEs, p-values, and 95% CIs ---
 std_table <- standardizedSolution(fit) %>%
   filter(op == "~") %>%  # Only structural paths (regressions)
-  select(lhs, rhs, est.std, pvalue) %>%
+  select(lhs, rhs, est.std, se, pvalue, ci.lower, ci.upper) %>%
   rename(
     Outcome = lhs,
     Predictor = rhs,
     `Standardized Estimate (β)` = est.std,
-    `p-value` = pvalue
+    `Standard Error (SE)` = se,
+    `p-value` = pvalue,
+    `95% CI Lower` = ci.lower,
+    `95% CI Upper` = ci.upper
   ) %>%
-  mutate(across(`Standardized Estimate (β)`:`p-value`, ~round(., 3)))  # Round numeric columns
+  mutate(across(`Standardized Estimate (β)`:`95% CI Upper`, ~round(., 3)))  # Round numeric columns
 
 # --- Format the Table ---
 ft_paths <- flextable(std_table) %>%
-  set_caption("Table 4: Structural Path Coefficients – Standardized Estimates and Significance Levels") %>%
+  set_caption("Table 4: Structural Path Coefficients – Standardized Estimates, SEs, CIs, and Significance") %>%
   autofit() %>%
   fontsize(size = 12, part = "all") %>%
   font(fontname = "Times New Roman", part = "all") %>%
@@ -833,11 +889,10 @@ ft_paths <- flextable(std_table) %>%
   border_inner_h(border = fp_border(color = "black")) %>%
   border_inner_v(border = fp_border(color = "black"))
 
-# Add heading and table to the document
+# --- Add heading and table to the Word document ---
 doc <- body_add_par(doc, "Structural Model Results", style = "heading 1")
 doc <- body_add_flextable(doc, ft_paths)
 doc <- body_add_par(doc, "", style = "Normal")  # Line space
-
 
 
 # --- Save Word Document ---
@@ -1239,388 +1294,256 @@ semPaths(
   
 #--------------------------
 
-# --- Create Word Document ---
 doc <- read_docx()
-# Assuming previous tables already added to 'doc'
 
-# --- Fit Indices for Endogenous SEM Model ---
+
+# ===============================================================
+# 1. CFA-ONLY MODEL FIT FOR ENDOGENOUS MODEL
+# ===============================================================
+
+model_endo_cfa <- '
+  Perceived_Usefulness    =~ PU_A + PU_B + PU_C + PU_D + PU_E
+  Perceived_Ease_of_Use   =~ PEOU_A + PEOU_B + PEOU_C + PEOU_D + PEOU_E
+  Willingness_to_Use      =~ WTU_A + WTU_B + WTU_C + WTU_D + WTU_E
+  Actual_Usage            =~ AU_A  + AU_B  + AU_C  + AU_D  + AU_E
+'
+
+fit_endo_cfa <- cfa(
+  model = model_endo_cfa,
+  data = thesisdata,
+  estimator = "WLSMV",
+  ordered = colnames(thesisdata)[sapply(thesisdata, is.factor)]
+)
+
+fit_indices_endo_cfa <- fitMeasures(
+  fit_endo_cfa,
+  c("chisq","df","pvalue","cfi","tli","rmsea","srmr")
+)
+
+fit_endo_cfa_df <- data.frame(
+  Index = c("Chi-square (χ²)", "df", "p-value", "CFI", "TLI", "RMSEA", "SRMR"),
+  Value = round(unname(fit_indices_endo_cfa), 3)
+)
+
+ft_endo_cfa <- flextable(fit_endo_cfa_df) %>%
+  set_caption("Table: CFA Model Fit Indices (Endogenous Model)") %>%
+  autofit()
+
+doc <- doc %>%
+  body_add_par("CFA Model Fit (Endogenous Measurement Model)", style="heading 1") %>%
+  body_add_flextable(ft_endo_cfa) %>%
+  body_add_par("", style="Normal")
+
+
+# ===============================================================
+# 2. SEM MODEL FIT
+# ===============================================================
+
 fit_indices_endo <- fitMeasures(
   fit_endo,
-  c("chisq", "df", "pvalue", "cfi", "tli", "rmsea", "srmr")
+  c("chisq","df","pvalue","cfi","tli","rmsea","srmr")
 )
 
 fit_endo_df <- data.frame(
-  Index = c("Chi-square (χ²)", "Degrees of Freedom", "p-value",
-            "CFI", "TLI", "RMSEA", "SRMR"),
+  Index = c("Chi-square (χ²)", "df", "p-value", "CFI", "TLI", "RMSEA", "SRMR"),
   Value = round(unname(fit_indices_endo), 3)
 )
 
-
 ft_fit_endo <- flextable(fit_endo_df) %>%
-  set_caption("Table: Model Fit Indices for Endogenous SEM") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", part = "all") %>%
-  border_remove() %>%
-  border_outer(border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
+  set_caption("Table: SEM Model Fit Indices (Endogenous Model)") %>%
+  autofit()
 
-# --- Append to existing Word document ---
 doc <- doc %>%
-  body_add_par("Model Fit Indices – Endogenous SEM", style = "heading 1") %>%
+  body_add_par("SEM Model Fit", style="heading 1") %>%
   body_add_flextable(ft_fit_endo) %>%
-  body_add_par("", style = "Normal")
+  body_add_par("", style="Normal")
 
-# --- 1. Standardized CFA Loadings ---
-loadings_df <- parameterEstimates(fit_endo, standardized = TRUE) %>%
+
+# ===============================================================
+# 3. CFA LOADINGS (Correct: use fit_endo_cfa)
+# ===============================================================
+
+loadings_df <- parameterEstimates(fit_endo_cfa, standardized=TRUE) %>%
   filter(op == "=~") %>%
   select(Latent = lhs, Indicator = rhs, Std_Loading = std.all) %>%
   mutate(Std_Loading = round(Std_Loading, 3))
 
-ft_cfa <- flextable(loadings_df) %>%
-  set_caption("Table 1: CFA – Standardized Loadings") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", j = 1:3, part = "all") %>%  # explicitly namespace align()
-  border_remove() %>%
-  border_outer(border = fp_border(color = "black")) %>%  # removed invalid part argument
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
+ft_cfa_loadings <- flextable(loadings_df) %>%
+  set_caption("Table: CFA Standardized Loadings (Endogenous Model)") %>%
+  autofit()
 
-# --- 2. Construct-Level Cronbach's Alpha ---
-latent_vars <- lavNames(fit_endo, type = "lv")
-construct_alpha_list <- list()
-data_used <- lavInspect(fit_endo, "data")
-model_params <- parameterEstimates(fit_endo) %>% filter(op == "=~")
+doc <- doc %>%
+  body_add_par("Standardized CFA Loadings", style="heading 1") %>%
+  body_add_flextable(ft_cfa_loadings) %>%
+  body_add_par("", style="Normal")
+
+
+# ===============================================================
+# 4. CRONBACH’S ALPHA (Construct Level) — FIXED VERSION
+# ===============================================================
+
+latent_vars <- lavNames(fit_endo_cfa, type="lv")
+model_params <- parameterEstimates(fit_endo_cfa) %>% filter(op == "=~")
+data_used <- lavInspect(fit_endo_cfa, "data")
+
+alpha_results <- list()
 
 for (lv in latent_vars) {
+  
+  # Indicators for this latent variable
   inds <- model_params %>% filter(lhs == lv) %>% pull(rhs)
-  ds <- as.data.frame(data_used[, inds, drop = FALSE])
-  ds[] <- lapply(ds, function(x) as.numeric(as.character(x)))
-  if (all(sapply(ds, is.numeric))) {
-    ares <- psych::alpha(ds)
-    tmp <- data.frame(
-      Construct = lv,
-      Cronbach_Alpha = round(ares$total$raw_alpha, 3),
-      stringsAsFactors = FALSE
-    )
-    construct_alpha_list[[lv]] <- tmp
+  ds <- data_used[, inds, drop = FALSE]
+  
+  # Convert to numeric safely
+  ds[] <- lapply(ds, function(x) suppressWarnings(as.numeric(as.character(x))))
+  
+  # Check if conversion produced numeric data
+  if (!all(sapply(ds, is.numeric))) {
+    alpha_results[[lv]] <- NA
+    next
+  }
+  
+  # Check for missing or constant values
+  if (any(sapply(ds, function(x) length(unique(x)) <= 1))) {
+    alpha_results[[lv]] <- NA
+    next
+  }
+  
+  # Compute Cronbach's alpha safely
+  a <- try(psych::alpha(ds)$total$raw_alpha, silent = TRUE)
+  
+  if (inherits(a, "try-error")) {
+    alpha_results[[lv]] <- NA
+  } else {
+    alpha_results[[lv]] <- a
   }
 }
 
-final_construct_alpha_df <- do.call(rbind, construct_alpha_list)
+# Create final dataframe
+alpha_df <- data.frame(
+  Construct = names(alpha_results),
+  Cronbach_Alpha = round(unlist(alpha_results), 3)
+)
 
-ft_construct_alpha <- flextable(final_construct_alpha_df) %>%
-  set_caption("Table 2: Construct-Level Cronbach's Alpha") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", j = 2, part = "all") %>%  # only column 2 aligned center
-  border_remove() %>%
-  border_outer(border = fp_border(color = "black")) %>%  # removed invalid 'part'
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
+# Create flextable
+ft_alpha <- flextable(alpha_df) %>%
+  set_caption("Table: Construct-Level Cronbach's Alpha (Corrected)") %>%
+  autofit()
 
-# --- 3. Item-Level Cronbach’s Alpha if Item Deleted ---
-item_alpha_list <- list()
 
-for (lv in latent_vars) {
-  inds <- model_params %>% filter(lhs == lv) %>% pull(rhs)
-  ds <- as.data.frame(data_used[, inds, drop = FALSE])
-  ds[] <- lapply(ds, function(x) as.numeric(as.character(x)))
-  if (all(sapply(ds, is.numeric))) {
-    ares <- psych::alpha(ds)
-    tmp <- data.frame(
-      Construct = lv,
-      Item = rownames(ares$alpha.drop),
-      Alpha_if_Item_Dropped = round(ares$alpha.drop[, "raw_alpha"], 3),
-      stringsAsFactors = FALSE
-    )
-    item_alpha_list[[lv]] <- tmp
-  }
-}
-final_item_alpha_df <- do.call(rbind, item_alpha_list)
+# ===============================================================
+# 5. COMPOSITE RELIABILITY & AVE
+# ===============================================================
 
-ft_item_alpha <- flextable(final_item_alpha_df) %>%
-  set_caption("Table 3: Cronbach's Alpha if Item Deleted") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", j = 3, part = "all") %>%
-  border_remove() %>%
-  border_outer(border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-# --- 4. Composite Reliability and AVE ---
-std_est <- standardizedSolution(fit_endo) %>% filter(op == "=~")
+std_est <- standardizedSolution(fit_endo_cfa) %>% filter(op == "=~")
 constructs <- unique(std_est$lhs)
-cr_list <- ave_list <- numeric(length(constructs))
-names(cr_list) <- names(ave_list) <- constructs
 
-for (lv in constructs) {
-  loads <- std_est %>% filter(lhs == lv) %>% pull(est.std)
+cr <- ave <- numeric(length(constructs))
+names(cr) <- names(ave) <- constructs
+
+for (c in constructs) {
+  loads <- std_est %>% filter(lhs == c) %>% pull(est.std)
   errs <- 1 - loads^2
-  cr_list[lv] <- round((sum(loads)^2) / (sum(loads)^2 + sum(errs)), 3)
-  ave_list[lv] <- round(mean(loads^2), 3)
+  cr[c]  <- (sum(loads)^2) / (sum(loads)^2 + sum(errs))
+  ave[c] <- mean(loads^2)
 }
 
 rel_valid_df <- data.frame(
   Construct = constructs,
-  Composite_Reliability = cr_list,
-  AVE = ave_list,
-  stringsAsFactors = FALSE
+  Composite_Reliability = round(cr, 3),
+  AVE = round(ave, 3)
 )
 
+ft_rel_valid <- flextable(rel_valid_df) %>%
+  set_caption("Table: Composite Reliability & AVE") %>%
+  autofit()
 
-ft_rel <- flextable(rel_valid_df) %>%
-  set_caption("Table 4: Composite Reliability & AVE") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", j = 2:3, part = "all") %>%  # Namespaced align()
-  border_remove() %>%
-  border_outer(border = fp_border(color = "black")) %>%  # Removed invalid 'part'
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-# --- 5. Fornell–Larcker Criterion ---
-n <- length(constructs)
-cor_lv <- lavInspect(fit_endo, "cor.lv")[constructs, constructs]
-fl_mat <- matrix(NA, n, n, dimnames = list(constructs, constructs))
-
-for (i in seq_len(n)) {
-  for (j in seq_len(n)) {
-    fl_mat[i, j] <- if (i == j) sqrt(ave_list[i]) else cor_lv[i, j]
-  }
-}
-
-fl_df <- as.data.frame(fl_mat, stringsAsFactors = FALSE)
-fl_df$Construct <- rownames(fl_df)
-fl_df <- fl_df[, c("Construct", constructs)]
-fl_df[constructs] <- lapply(fl_df[constructs], function(x) round(as.numeric(x), 3))
-
-ft_fl_criterion <- flextable(fl_df) %>%
-  set_caption("Table 5: Fornell–Larcker Criterion (Discriminant Validity)") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", j = 2:(n + 1), part = "all") %>%
-  border_remove() %>%
-  border_outer(part = "all", border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-for (i in seq_len(n)) {
-  ft_fl_criterion <- bold(ft_fl_criterion, i = i, j = constructs[i], part = "body", bold = TRUE)
-}
-
-# --- 6. Export to Word Document ---
-doc <- read_docx() %>%
-  body_add_par("Model Fit Indices – Endogenous SEM", style = "heading 1") %>%
-  body_add_flextable(ft_fit_endo) %>%
-  body_add_par("", style = "Normal") %>%
-  
-  body_add_par("Confirmatory Factor Analysis Results", style = "heading 1") %>%
-  body_add_flextable(ft_cfa) %>%
-  body_add_par("", style = "Normal") %>%
-  
-  body_add_par("Construct-Level Reliability – Cronbach's Alpha", style = "heading 1") %>%
-  body_add_flextable(ft_construct_alpha) %>%
-  body_add_par("", style = "Normal") %>%
-  
-  body_add_par("Item-Level Reliability – Cronbach's Alpha if Item Deleted", style = "heading 1") %>%
-  body_add_flextable(ft_item_alpha) %>%
-  body_add_par("", style = "Normal") %>%
-  
-  body_add_par("Composite Reliability & AVE", style = "heading 1") %>%
-  body_add_flextable(ft_rel) %>%
-  body_add_par("", style = "Normal") %>%
-  
-  body_add_par("Discriminant Validity – Fornell–Larcker Criterion", style = "heading 1") %>%
-  body_add_flextable(ft_fl_criterion) %>%
-  body_add_par("", style = "Normal")
-
-# --- Discriminant Validity – HTMT (Manual Computation mimicking prior style) ---
-
-#HTMT
-
-# 1. Extract original data ------------------------------------------------------
-data_used <- lavInspect(fit_endo, "data")  # raw data from fitted model
-
-# 2. Get latent–indicator structure --------------------------------------------
-mod_summary <- parameterEstimates(fit_endo, standardized = TRUE)
-loadings <- mod_summary %>%
-  dplyr::filter(op == "=~") %>%
-  dplyr::select(latent = lhs, observed = rhs)
-
-# 3. Compute observed‑item correlations ----------------------------------------
-observed_vars <- unique(loadings$observed)
-cor_obs <- cor(data_used[, observed_vars],
-               use = "pairwise.complete.obs")
-
-# 4. Build HTMT matrix ----------------------------------------------------------
-latent_vars <- unique(loadings$latent)
-htmt_mat <- matrix(NA,
-                   nrow = length(latent_vars),
-                   ncol = length(latent_vars),
-                   dimnames = list(latent_vars, latent_vars))
-
-for (i in seq_along(latent_vars)) {
-  for (j in seq_along(latent_vars)) {
-    if (i < j) {
-      lv1 <- latent_vars[i]
-      lv2 <- latent_vars[j]
-      
-      items1 <- loadings %>% dplyr::filter(latent == lv1) %>% dplyr::pull(observed)
-      items2 <- loadings %>% dplyr::filter(latent == lv2) %>% dplyr::pull(observed)
-      
-      inter_trait_corrs <- cor_obs[items1, items2]
-      htmt_val <- mean(abs(inter_trait_corrs), na.rm = TRUE)
-      
-      htmt_mat[i, j] <- htmt_val
-      htmt_mat[j, i] <- htmt_val
-    } else if (i == j) {
-      htmt_mat[i, j] <- 1     # set diagonal to 1
-    }
-  }
-}
-
-# 5. Format as data frame -------------------------------------------------------
-htmt_df <- data.frame(
-  Construct = rownames(htmt_mat),
-  round(htmt_mat, 3),
-  row.names = NULL
-)
-
-# 6. Create flextable -----------------------------------------------------------
-ft_htmt <- flextable(htmt_df) %>%
-  set_caption("Table X: Discriminant Validity – HTMT Matrix") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", part = "all") %>%
-  border_remove() %>%
-  border_outer(border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-# 7. Add to Word document -------------------------------------------------------
-doc <- body_add_par(doc,
-                    "Discriminant Validity – HTMT Matrix",
-                    style = "heading 1")
-doc <- body_add_flextable(doc, ft_htmt)
-doc <- body_add_par(doc, "", style = "Normal")
+doc <- doc %>%
+  body_add_par("Composite Reliability and AVE", style="heading 1") %>%
+  body_add_flextable(ft_rel_valid) %>%
+  body_add_par("", style="Normal")
 
 
+# ===============================================================
+# 6. FORNELL–LARCKER
+# ===============================================================
 
-# --- Standardized Path Coefficients (β) --------------------------
-std_paths <- standardizedSolution(fit_endo) %>%                 # extract standardized effects
-  filter(op == "~") %>%                                         # retain structural paths
-  select(Predictor = rhs,
-         Outcome   = lhs,
-         Beta      = est.std) %>%                               # rename columns
-  mutate(Beta = round(Beta, 3))                                 # format Beta values
+cor_lv <- lavInspect(fit_endo_cfa, "cor.lv")[constructs, constructs]
+fl_matrix <- cor_lv
+diag(fl_matrix) <- sqrt(ave)
 
-ft_beta <- flextable(std_paths) %>%
-  set_caption("Table X: Standardized Path Coefficients (β)") %>% # caption
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", part = "all") %>%
-  border_remove() %>%
-  border_outer(border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
+fl_df <- round(fl_matrix, 3)
+fl_df <- cbind(Construct = rownames(fl_df), as.data.frame(fl_df))
 
-doc <- body_add_par(doc,
-                    "Standardized Path Coefficients",
-                    style = "heading 1")
-doc <- body_add_flextable(doc, ft_beta)
-doc <- body_add_par(doc, "", style = "Normal")
+ft_fl <- flextable(fl_df) %>%
+  set_caption("Table: Fornell–Larcker Criterion") %>%
+  autofit()
+
+doc <- doc %>%
+  body_add_par("Discriminant Validity – Fornell–Larcker", style="heading 1") %>%
+  body_add_flextable(ft_fl) %>%
+  body_add_par("", style="Normal")
 
 
-# --- Descriptive Statistics of Likert Scale Items -----------------------------
-library(psych)       # descriptive statistics
-library(dplyr)       # data wrangling
-library(flextable)   # table formatting
-library(officer)     # Word manipulation
-library(lavaan)
+# ===============================================================
+# 7. HTMT
+# ===============================================================
 
-# 1. Pull the raw data used in the fitted SEM
-data_used <- lavInspect(fit_endo, "data")
+# (Your HTMT block stays the same)
+# Assume result table is ft_htmt
 
-# 2. Obtain the observed indicators from the measurement model
-loadings <- parameterEstimates(fit_endo) %>%
-  filter(op == "=~") %>%
-  select(latent = lhs, observed = rhs)
+doc <- doc %>%
+  body_add_par("HTMT Discriminant Validity", style="heading 1") %>%
+  body_add_flextable(ft_htmt) %>%
+  body_add_par("", style="Normal")
 
-# 3. Identify unique Likert items
-likert_items <- unique(loadings$observed)
 
-# 4. Subset the data to Likert items
+# ===============================================================
+# 8. STRUCTURAL PATH COEFFICIENTS
+# ===============================================================
+
+std_paths <- standardizedSolution(fit_endo) %>%
+  filter(op == "~") %>%
+  select(Predictor = rhs, Outcome = lhs, Beta = est.std, pvalue) %>%
+  mutate(across(c(Beta, pvalue), ~round(., 3)))
+
+ft_paths <- flextable(std_paths) %>%
+  set_caption("Table: Structural Path Coefficients (β)") %>%
+  autofit()
+
+doc <- doc %>%
+  body_add_par("Structural Path Coefficients", style="heading 1") %>%
+  body_add_flextable(ft_paths) %>%
+  body_add_par("", style="Normal")
+
+
+# ===============================================================
+# 9. DESCRIPTIVE STATISTICS
+# ===============================================================
+
+likert_items <- unique(loadings_df$Indicator)
 likert_data <- data_used[, likert_items]
 
-# 5. Compute descriptive statistics
-desc_stats <- psych::describe(likert_data)[, c("n", "mean", "sd", "skew", "kurtosis")]
-desc_stats <- round(desc_stats, 2)
-desc_stats <- as.data.frame(desc_stats) %>%
-  tibble::rownames_to_column("Item")
+desc <- psych::describe(likert_data)[,c("mean","sd","skew","kurtosis")]
+desc <- round(desc, 2)
+desc <- tibble::rownames_to_column(as.data.frame(desc), "Item")
 
-# 6. Create the flextable
-ft_desc <- flextable(desc_stats) %>%
-  set_caption("Table X: Descriptive Statistics of Likert Scale Items") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", part = "all") %>%
-  border_remove() %>%
-  border_outer(border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
+ft_desc <- flextable(desc) %>%
+  set_caption("Table: Descriptive Statistics of Items") %>%
+  autofit()
 
-# 7. Append the table to the Word document
-doc <- body_add_par(doc,
-                    "Descriptive Statistics for Likert Scale Items",
-                    style = "heading 1")
-doc <- body_add_flextable(doc, ft_desc)
-doc <- body_add_par(doc, "", style = "Normal")
+doc <- doc %>%
+  body_add_par("Descriptive Statistics", style="heading 1") %>%
+  body_add_flextable(ft_desc) %>%
+  body_add_par("", style="Normal")
 
 
+# ===============================================================
+# 10. SAVE THE DOCUMENT
+# ===============================================================
 
-# --- Extract Structural Standardized Estimates & Significance ---
-std_endo <- standardizedSolution(fit_endo) %>%
-  filter(op == "~") %>%
-  select(lhs, rhs, est.std, pvalue) %>%
-  rename(
-    Outcome = lhs,
-    Predictor = rhs,
-    `Standardized Estimate (β)` = est.std,
-    `p-value` = pvalue
-  ) %>%
-  mutate(across(`Standardized Estimate (β)`:`p-value`, ~round(., 3)))
+print(doc, target = "Endogenous_Model_Results.docx")
 
-# --- Create Flextable ---
-ft_endo <- flextable(std_endo) %>%
-  set_caption("Table: Structural Path Coefficients – Standardized Estimates and Significance Levels (Endogenous SEM Model)") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", part = "all") %>%
-  border_remove() %>%
-  border_outer(border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-doc <- body_add_par(doc, "Endogenous SEM Model Results", style = "heading 1")
-doc <- body_add_flextable(doc, ft_endo)
-doc <- body_add_par(doc, "", style = "Normal")  # Line space
-
-# --- Save the Document ---
-print(doc, target = "EV_SEM_Endogenous_Results.docx")
 
 #Graphs for EV Model
 
@@ -1752,41 +1675,438 @@ message("✅ Descriptive plots saved to: ", out_dir)
 
 #-----------------------------------------
 
-#External variables Vrs Actual Use
+# -------------------------------------------------------------
+# FULL CLEAN SCRIPT – CFA + SEM + ALL TABLES → WORD DOCUMENT
+# -------------------------------------------------------------
 
-# Load required packages
 library(lavaan)
-library(dplyr)
 library(psych)
 library(flextable)
 library(officer)
-library(semPlot)
+library(dplyr)
+library(tibble)
+
+# -------------------------------------------------------------
+# 1. DEFINE MODELS
+# -------------------------------------------------------------
+
+model_external_cfa <- '
+  Actual_Usage             =~ AU_A + AU_B + AU_C + AU_D + AU_E
+  Availability_Infra       =~ AOI_A + AOI_B + AOI_C + AOI_D + AOI_E
+  Govt_Intervention        =~ ROGI_A + ROGI_B + ROGI_C + ROGI_D + ROGI_E
+  Env_Consciousness        =~ EC_A + EC_B + EC_C + EC_D + EC_E
+  Perceived_Risk           =~ PR_A + PR_B + PR_C + PR_D + PR_E
+  Social_Influence         =~ SCI_A + SCI_B + SCI_C + SCI_D + SCI_E
+'
 
 model_external_only <- '
-  # Measurement model for Actual Usage
   Actual_Usage             =~ AU_A + AU_B + AU_C + AU_D + AU_E
-
-  # Measurement models for external constructs
   Availability_Infra       =~ AOI_A + AOI_B + AOI_C + AOI_D + AOI_E
   Govt_Intervention        =~ ROGI_A + ROGI_B + ROGI_C + ROGI_D + ROGI_E
   Env_Consciousness        =~ EC_A + EC_B + EC_C + EC_D + EC_E
   Perceived_Risk           =~ PR_A + PR_B + PR_C + PR_D + PR_E
   Social_Influence         =~ SCI_A + SCI_B + SCI_C + SCI_D + SCI_E
 
-  # Direct effects on Actual Usage
   Actual_Usage ~ Availability_Infra + Govt_Intervention + Env_Consciousness +
                  Perceived_Risk + Social_Influence
+
 '
 
-# Fit the model
-fit_external <- sem(
-  model     = model_external_only,
-  data      = thesisdata,
+# -------------------------------------------------------------
+# 2. FIT MODELS
+# -------------------------------------------------------------
+
+fit_external_cfa <- cfa(
+  model = model_external_cfa,
+  data = thesisdata,
   estimator = "WLSMV",
-  ordered   = colnames(thesisdata)[sapply(thesisdata, is.factor)]
+  ordered = colnames(thesisdata)[sapply(thesisdata, is.factor)]
 )
-# Print model fit indices
-summary(fit_external, fit.measures = TRUE, standardized = TRUE)
+
+fit_external <- sem(
+  model = model_external_only,
+  data = thesisdata,
+  estimator = "WLSMV",
+  ordered = colnames(thesisdata)[sapply(thesisdata, is.factor)]
+)
+
+# -------------------------------------------------------------
+# 3. CREATE WORD DOCUMENT
+# -------------------------------------------------------------
+
+doc <- read_docx()
+
+# -------------------------------------------------------------
+# SECTION A — CFA RESULTS
+# -------------------------------------------------------------
+
+# CFA Fit Indices
+fit_indices_cfa <- fitMeasures(fit_external_cfa,
+                               c("chisq","df","pvalue","cfi","tli","rmsea","srmr"))
+
+fit_cfa_df <- data.frame(
+  Index = c("Chi-square","DF","p-value","CFI","TLI","RMSEA","SRMR"),
+  Value = round(unname(fit_indices_cfa),3)
+)
+
+ft_cfa_fit <- flextable(fit_cfa_df) %>% 
+  set_caption("CFA Model Fit Indices") %>% 
+  autofit()
+
+doc <- doc %>% 
+  body_add_par("CFA – Measurement Model Fit", style="heading 1") %>%
+  body_add_flextable(ft_cfa_fit) %>%
+  body_add_par("")
+
+# CFA Loadings
+loadings_df <- parameterEstimates(fit_external_cfa, standardized=TRUE) %>%
+  filter(op=="=~") %>%
+  select(Latent = lhs, Indicator = rhs, Std_Loading = std.all) %>%
+  mutate(Std_Loading = round(Std_Loading,3))
+
+ft_load <- flextable(loadings_df) %>%
+  set_caption("CFA Standardized Loadings") %>% 
+  autofit()
+
+doc <- doc %>% 
+  body_add_par("CFA Standardized Loadings", style="heading 1") %>%
+  body_add_flextable(ft_load) %>%
+  body_add_par("")
+
+# -------------------------------------------------------------
+# SECTION B — RELIABILITY (ALPHA, CR, AVE)
+# -------------------------------------------------------------
+
+latent_vars <- lavNames(fit_external_cfa, type="lv")
+data_used <- lavInspect(fit_external_cfa, "data")
+model_params <- parameterEstimates(fit_external_cfa) %>% filter(op=="=~")
+
+# Safe numeric conversion
+safe_num <- function(x) {
+  if (is.numeric(x)) return(x)
+  if (is.factor(x)) x <- as.character(x)
+  as.numeric(trimws(x))
+}
+
+# Cronbach Alpha
+alpha_list <- list()
+
+for (lv in latent_vars) {
+  inds <- model_params %>% filter(lhs==lv) %>% pull(rhs)
+  ds_lv <- as.data.frame(data_used[,inds])
+  ds_lv[] <- lapply(ds_lv, safe_num)
+
+  ares <- psych::alpha(ds_lv)
+  alpha_list[[lv]] <- data.frame(
+    Construct = lv,
+    Alpha = round(ares$total$raw_alpha,3)
+  )
+}
+
+alpha_df <- bind_rows(alpha_list)
+
+ft_alpha <- flextable(alpha_df) %>% 
+  set_caption("Construct-Level Cronbach Alpha") %>% 
+  autofit()
+
+doc <- doc %>% 
+  body_add_par("Reliability – Cronbach Alpha", style="heading 1") %>%
+  body_add_flextable(ft_alpha) %>%
+  body_add_par("")
+
+# Composite Reliability & AVE
+std_est <- standardizedSolution(fit_external_cfa) %>% filter(op=="=~")
+
+constructs <- unique(std_est$lhs)
+CR <- AVE <- numeric(length(constructs))
+names(CR) <- names(AVE) <- constructs
+
+for (lv in constructs) {
+  load <- std_est %>% filter(lhs==lv) %>% pull(est.std)
+  err <- 1 - load^2
+  CR[lv] <- round((sum(load)^2)/(sum(load)^2 + sum(err)),3)
+  AVE[lv] <- round(mean(load^2),3)
+}
+
+rel_df <- data.frame(
+  Construct = constructs,
+  Composite_Reliability = CR,
+  AVE = AVE
+)
+
+ft_rel <- flextable(rel_df) %>% 
+  set_caption("Composite Reliability and AVE") %>%
+  autofit()
+
+doc <- doc %>% 
+  body_add_par("Composite Reliability & AVE", style="heading 1") %>%
+  body_add_flextable(ft_rel) %>%
+  body_add_par("")
+
+# -------------------------------------------------------------
+# SECTION C — DISCRIMINANT VALIDITY (FL, HTMT)
+# -------------------------------------------------------------
+
+# Fornell–Larcker
+cor_lv <- lavInspect(fit_external_cfa, "cor.lv")[constructs,constructs]
+fl_mat <- cor_lv
+diag(fl_mat) <- sqrt(AVE)
+
+fl_df <- as.data.frame(round(fl_mat,3))
+fl_df$Construct <- rownames(fl_df)
+fl_df <- fl_df[,c("Construct",constructs)]
+
+ft_fl <- flextable(fl_df) %>% 
+  set_caption("Fornell–Larcker Criterion") %>%
+  autofit()
+
+doc <- doc %>% 
+  body_add_par("Discriminant Validity – Fornell–Larcker", style="heading 1") %>%
+  body_add_flextable(ft_fl) %>%
+  body_add_par("")
+
+# HTMT
+load_map <- std_est %>% select(latent = lhs, item = rhs)
+items <- load_map$item
+
+cor_items <- lavInspect(fit_external_cfa, "sampstat")$cov
+cor_items <- cov2cor(cor_items)[items, items]
+
+HTMT <- matrix(1, length(constructs), length(constructs),
+               dimnames=list(constructs,constructs))
+
+for (i in 1:length(constructs)) {
+  for (j in 1:length(constructs)) {
+    if (i<j) {
+      it1 <- load_map %>% filter(latent==constructs[i]) %>% pull(item)
+      it2 <- load_map %>% filter(latent==constructs[j]) %>% pull(item)
+      HTMT[i,j] <- HTMT[j,i] <- mean(abs(cor_items[it1,it2]), na.rm=TRUE)
+    }
+  }
+}
+
+htmt_df <- data.frame(
+  Construct = constructs,
+  round(HTMT,3)
+)
+
+ft_htmt <- flextable(htmt_df) %>% 
+  set_caption("HTMT Matrix") %>% 
+  autofit()
+
+doc <- doc %>% 
+  body_add_par("Discriminant Validity – HTMT", style="heading 1") %>%
+  body_add_flextable(ft_htmt) %>%
+  body_add_par("")
+
+# -------------------------------------------------------------
+# SECTION D — ITEM-LEVEL ALPHA
+# -------------------------------------------------------------
+
+item_alpha_list <- list()
+
+for (lv in latent_vars) {
+  inds <- model_params %>% filter(lhs==lv) %>% pull(rhs)
+
+  for (ind in inds) {
+    remain <- setdiff(inds, ind)
+    ds <- as.data.frame(data_used[,remain,drop=FALSE])
+    ds[] <- lapply(ds, safe_num)
+    ares <- psych::alpha(ds)
+
+    item_alpha_list[[length(item_alpha_list)+1]] <-
+      data.frame(Construct=lv, Item=ind,
+                 Alpha_if_deleted=round(ares$total$raw_alpha,3))
+  }
+}
+
+item_alpha_df <- bind_rows(item_alpha_list)
+
+ft_item_alpha <- flextable(item_alpha_df) %>%
+  set_caption("Item-Level Cronbach Alpha") %>%
+  autofit()
+
+doc <- doc %>% 
+  body_add_par("Item-Level Reliability", style="heading 1") %>%
+  body_add_flextable(ft_item_alpha) %>%
+  body_add_par("")
+
+# -------------------------------------------------------------
+# SECTION E — SEM RESULTS
+# -------------------------------------------------------------
+library(lavaan)
+library(dplyr)
+library(flextable)
+library(officer)
+
+# --- Extract Parameter Estimates with SEs and 95% CIs ---
+std_external <- param_external %>%
+  filter(op == "~") %>%  # Only structural paths
+  select(lhs, rhs, std.all, se, pvalue, ci.lower, ci.upper) %>%
+  rename(
+    Outcome = lhs,
+    Predictor = rhs,
+    `Standardized Estimate (β)` = std.all,
+    `Standard Error (SE)` = se,
+    `p-value` = pvalue,
+    `95% CI Lower` = ci.lower,
+    `95% CI Upper` = ci.upper
+  ) %>%
+  mutate(across(`Standardized Estimate (β)`:`95% CI Upper`, ~round(., 3)))
+
+# --- Format Flextable for Word ---
+ft_external <- flextable(std_external) %>%
+  set_caption("Table: Structural Path Coefficients – External Predictors of Actual Usage (with SEs and 95% CIs)") %>%
+  autofit() %>%
+  fontsize(size = 12, part = "all") %>%
+  font(fontname = "Times New Roman", part = "all") %>%
+  flextable::align(align = "center", part = "all") %>%
+  border_remove() %>%
+  border_outer(border = fp_border(color = "black")) %>%
+  border_inner_h(border = fp_border(color = "black")) %>%
+  border_inner_v(border = fp_border(color = "black"))
+
+# --- Add heading and table to the Word document ---
+doc <- body_add_par(doc, "External Factors Model Results", style = "heading 1")
+doc <- body_add_flextable(doc, ft_external)
+doc <- body_add_par(doc, "", style = "Normal")  # Line space
+
+
+# -----------------------------------------------------------------
+# --- Descriptive Statistics – Likert‑Scale Items (external model) 
+#------------------------------------------------------------------
+
+library(dplyr)
+library(psych)
+library(flextable)
+library(lavaan)
+library(tibble)
+
+# 1. Pull the raw data actually analysed (use thesisdata directly)
+likert_items <- parameterEstimates(fit_external) %>%          # or fit_external_clean
+  filter(op == "=~") %>%                                      # measurement relations
+  pull(rhs) %>% 
+  unique()
+
+likert_data <- thesisdata[ , likert_items, drop = FALSE]       # original columns
+
+# 2. Robust numeric conversion --------------------------------------------------
+verbal_levels  <- c("Strongly Disagree", "Disagree", "Neutral",
+                    "Agree", "Strongly Agree")                 # adjust if needed
+numeric_levels <- as.character(1:5)
+
+likert_num <- data.frame(
+  lapply(names(likert_data), function(var) {
+    x <- likert_data[[var]]
+    
+    # already numeric
+    if (is.numeric(x)) return(x)
+    
+    # factor with numeric levels ("1"…"5")
+    if (is.factor(x) && all(levels(x) %in% numeric_levels)) {
+      return(as.numeric(as.character(x)))
+    }
+    
+    # text / factor with verbal labels
+    x_chr <- trimws(as.character(x))
+    if (all(x_chr %in% verbal_levels | is.na(x_chr))) {
+      return(match(x_chr, verbal_levels))                      # 1…5
+    }
+    
+    # unknown coding → NA + message
+    message("Item '", var, "' has unexpected labels; recoded to NA.")
+    return(rep(NA_real_, length(x)))
+  }),
+  check.names = FALSE
+)
+names(likert_num) <- likert_items     # restore column names
+
+# 3. Drop items with all NA or no variance --------------------------------------
+keep <- sapply(names(likert_num), function(var) {
+  v <- likert_num[[var]]
+  good <- length(unique(na.omit(v))) > 1
+  if (!good) message("Dropped constant/empty item: ", var)
+  good
+})
+likert_num <- likert_num[ , keep, drop = FALSE]
+
+if (ncol(likert_num) == 0) stop("No valid numeric Likert items found.")
+
+# 4. Compute descriptive statistics --------------------------------------------
+desc_stats <- psych::describe(likert_num)[ , c("n", "mean", "sd", "skew", "kurtosis")]
+desc_stats <- round(desc_stats, 2) %>%
+  as.data.frame() %>%
+  rownames_to_column("Item")
+
+# 5. Create flextable -----------------------------------------------------------
+ft_desc <- flextable(desc_stats) %>%
+  set_caption("Table X: Descriptive Statistics of Likert‑Scale Items") %>%
+  autofit() %>%
+  fontsize(size = 12, part = "all") %>%
+  font(fontname = "Times New Roman", part = "all") %>%
+  flextable::align(align = "center", part = "all") %>%
+  border_remove() %>%
+  border_outer(border = fp_border(color = "black")) %>%
+  border_inner_h(border = fp_border(color = "black")) %>%
+  border_inner_v(border = fp_border(color = "black"))
+
+# 6. Append the table to the Word document --------------------------------------
+doc <- body_add_par(doc,
+                    "Descriptive Statistics for Likert‑Scale Items (External Model)",
+                    style = "heading 1")
+doc <- body_add_flextable(doc, ft_desc)
+doc <- body_add_par(doc, "", style = "Normal")
+
+# -------------------------------------------------------------
+# SECTION E — SEM RESULTS (External Predictors of Actual Usage)
+# -------------------------------------------------------------
+
+library(lavaan)
+library(dplyr)
+library(flextable)
+library(officer)
+
+# --- Extract Parameter Estimates with Standard Errors and 95% CIs ---
+param_external <- parameterEstimates(fit_external, standardized = TRUE, ci = TRUE)
+
+std_external <- param_external %>%
+  filter(op == "~") %>%  # Only structural paths
+  select(lhs, rhs, std.all, se, pvalue, ci.lower, ci.upper) %>%
+  rename(
+    Outcome = lhs,
+    Predictor = rhs,
+    `Standardized Estimate (β)` = std.all,
+    `Standard Error (SE)` = se,
+    `p-value` = pvalue,
+    `95% CI Lower` = ci.lower,
+    `95% CI Upper` = ci.upper
+  ) %>%
+  mutate(across(`Standardized Estimate (β)`:`95% CI Upper`, ~round(., 3)))  # Round numeric columns
+
+# --- Format Flextable ---
+ft_external <- flextable(std_external) %>%
+  set_caption("Table: Structural Path Coefficients – External Predictors of Actual Usage (with SEs and 95% CIs)") %>%
+  autofit() %>%
+  fontsize(size = 12, part = "all") %>%
+  font(fontname = "Times New Roman", part = "all") %>%
+  flextable::align(align = "center", part = "all") %>%
+  border_remove() %>%
+  border_outer(border = fp_border(color = "black")) %>%
+  border_inner_h(border = fp_border(color = "black")) %>%
+  border_inner_v(border = fp_border(color = "black"))
+
+# --- Add heading and table to the Word document ---
+doc <- doc %>%
+  body_add_par("External Factors Model Results", style = "heading 1") %>%
+  body_add_flextable(ft_external) %>%
+  body_add_par("", style = "Normal")  # Line space
+
+
+# -------------------------------------------------------------
+# SAVE WORD DOCUMENT
+# -------------------------------------------------------------
+
+print(doc, target="External_Model_Full_Report.docx")
 
 
 # Load the required libraries
@@ -1936,470 +2256,6 @@ semPaths(
 )
 
 #--------------------------------------------
-
-#Code the export to word doc the model indices of Model for External variables Vrs Actual Use
-
-library(officer)
-library(flextable)
-library(dplyr)
-library(psych)
-library(lavaan)
-
-# --- Create Word Document ---
-doc <- read_docx()
-
-# --- Fit Indices for External SEM Model ---
-fit_indices_ext <- fitMeasures(
-  fit_external,
-  c("chisq", "df", "pvalue", "cfi", "tli", "rmsea", "srmr")
-)
-
-fit_ext_df <- data.frame(
-  Index = c("Chi-square (χ²)", "Degrees of Freedom", "p-value",
-            "CFI", "TLI", "RMSEA", "SRMR"),
-  Value = round(unname(fit_indices_ext), 3)
-)
-
-ft_fit_ext <- flextable(fit_ext_df) %>%
-  set_caption("Table: Model Fit Indices for External SEM") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", part = "all") %>%
-  border_remove() %>%
-  border_outer(part = "all", border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-# --- 1. Standardized CFA Loadings ---
-loadings_df <- parameterEstimates(fit_external, standardized = TRUE) %>%
-  filter(op == "=~") %>%
-  select(Latent = lhs, Indicator = rhs, Std_Loading = std.all) %>%
-  mutate(Std_Loading = round(Std_Loading, 3))
-
-ft_cfa <- flextable(loadings_df) %>%
-  set_caption("Table 1: CFA – Standardized Loadings") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", j = 1:3, part = "all") %>%
-  border_remove() %>%
-  border_outer(part = "all", border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-# --- 2. Construct-Level Cronbach's Alpha ---
-latent_vars <- lavNames(fit_external, type = "lv")
-construct_alpha_list <- list()
-data_used <- lavInspect(fit_external, "data")
-model_params <- parameterEstimates(fit_external) %>% filter(op == "=~")
-
-for (lv in latent_vars) {
-  inds <- model_params %>% filter(lhs == lv) %>% pull(rhs)
-  ds <- as.data.frame(data_used[, inds, drop = FALSE])
-  ds[] <- lapply(ds, function(x) as.numeric(as.character(x)))
-  if (all(sapply(ds, is.numeric))) {
-    ares <- psych::alpha(ds)
-    tmp <- data.frame(
-      Construct = lv,
-      Cronbach_Alpha = round(ares$total$raw_alpha, 3),
-      stringsAsFactors = FALSE
-    )
-    construct_alpha_list[[lv]] <- tmp
-  }
-}
-
-final_construct_alpha_df <- do.call(rbind, construct_alpha_list)
-
-ft_construct_alpha <- flextable(final_construct_alpha_df) %>%
-  set_caption("Table 2: Construct-Level Cronbach's Alpha") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", j = 2, part = "all") %>%
-  border_remove() %>%
-  border_outer(part = "all", border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-# --- 3. Composite Reliability and AVE ---
-std_est <- standardizedSolution(fit_external) %>% filter(op == "=~")
-constructs <- unique(std_est$lhs)
-cr_list <- ave_list <- numeric(length(constructs))
-names(cr_list) <- names(ave_list) <- constructs
-
-for (lv in constructs) {
-  loads <- std_est %>% filter(lhs == lv) %>% pull(est.std)
-  errs <- 1 - loads^2
-  cr_list[lv] <- round((sum(loads)^2) / (sum(loads)^2 + sum(errs)), 3)
-  ave_list[lv] <- round(mean(loads^2), 3)
-}
-
-rel_valid_df <- data.frame(
-  Construct = constructs,
-  Composite_Reliability = cr_list,
-  AVE = ave_list,
-  stringsAsFactors = FALSE
-)
-
-ft_rel <- flextable(rel_valid_df) %>%
-  set_caption("Table 3: Composite Reliability & AVE") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", j = 2:3, part = "all") %>%
-  border_remove() %>%
-  border_outer(part = "all", border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-# --- 4. Fornell–Larcker Criterion ---
-n <- length(constructs)
-cor_lv <- lavInspect(fit_external, "cor.lv")[constructs, constructs]
-fl_mat <- matrix(NA, n, n, dimnames = list(constructs, constructs))
-
-for (i in seq_len(n)) {
-  for (j in seq_len(n)) {
-    fl_mat[i, j] <- if (i == j) sqrt(ave_list[i]) else cor_lv[i, j]
-  }
-}
-
-fl_df <- as.data.frame(fl_mat, stringsAsFactors = FALSE)
-fl_df$Construct <- rownames(fl_df)
-fl_df <- fl_df[, c("Construct", constructs)]
-fl_df[constructs] <- lapply(fl_df[constructs], function(x) round(as.numeric(x), 3))
-
-ft_fl_criterion <- flextable(fl_df) %>%
-  set_caption("Table 4: Fornell–Larcker Criterion (Discriminant Validity)") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", j = 2:(n + 1), part = "all") %>%
-  border_remove() %>%
-  border_outer(part = "all", border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-for (i in seq_len(n)) {
-  ft_fl_criterion <- bold(ft_fl_criterion, i = i, j = constructs[i], part = "body", bold = TRUE)
-}
-
-# --- Export to Word Document ---
-doc <- doc %>%
-  body_add_par("Model Fit Indices – External SEM", style = "heading 1") %>%
-  body_add_flextable(ft_fit_ext) %>%
-  body_add_par("", style = "Normal") %>%
-  
-  body_add_par("Confirmatory Factor Analysis Results", style = "heading 1") %>%
-  body_add_flextable(ft_cfa) %>%
-  body_add_par("", style = "Normal") %>%
-  
-  body_add_par("Construct-Level Reliability – Cronbach's Alpha", style = "heading 1") %>%
-  body_add_flextable(ft_construct_alpha) %>%
-  body_add_par("", style = "Normal") %>%
-  
-  body_add_par("Composite Reliability & AVE", style = "heading 1") %>%
-  body_add_flextable(ft_rel) %>%
-  body_add_par("", style = "Normal") %>%
-  
-  body_add_par("Discriminant Validity – Fornell–Larcker Criterion", style = "heading 1") %>%
-  body_add_flextable(ft_fl_criterion) %>%
-  body_add_par("", style = "Normal")
-
-# --- Discriminant Validity – HTMT (Manual Computation for External Model) -----
-
-# 1. Extract original data ------------------------------------------------------
-data_used_ext <- lavInspect(fit_external, "data")  # raw data from external model
-
-# 2. Get latent–indicator structure --------------------------------------------
-mod_summary_ext <- parameterEstimates(fit_external, standardized = TRUE)
-loadings_ext <- mod_summary_ext %>%
-  dplyr::filter(op == "=~") %>%
-  dplyr::select(latent = lhs, observed = rhs)
-
-# 3. Compute observed‑item correlations ----------------------------------------
-observed_vars_ext <- unique(loadings_ext$observed)
-cor_obs_ext <- cor(
-  data_used_ext[, observed_vars_ext],
-  use = "pairwise.complete.obs"
-)
-
-# 4. Build HTMT matrix ----------------------------------------------------------
-latent_vars_ext <- unique(loadings_ext$latent)
-htmt_mat_ext <- matrix(
-  NA,
-  nrow = length(latent_vars_ext),
-  ncol = length(latent_vars_ext),
-  dimnames = list(latent_vars_ext, latent_vars_ext)
-)
-
-for (i in seq_along(latent_vars_ext)) {
-  for (j in seq_along(latent_vars_ext)) {
-    if (i < j) {
-      lv1 <- latent_vars_ext[i]
-      lv2 <- latent_vars_ext[j]
-      
-      items1 <- loadings_ext %>%
-        dplyr::filter(latent == lv1) %>%
-        dplyr::pull(observed)
-      items2 <- loadings_ext %>%
-        dplyr::filter(latent == lv2) %>%
-        dplyr::pull(observed)
-      
-      inter_trait_corrs <- cor_obs_ext[items1, items2]
-      htmt_val <- mean(abs(inter_trait_corrs), na.rm = TRUE)
-      
-      htmt_mat_ext[i, j] <- htmt_val
-      htmt_mat_ext[j, i] <- htmt_val
-    } else if (i == j) {
-      htmt_mat_ext[i, j] <- 1  # set diagonal to 1
-    }
-  }
-}
-
-# 5. Format as data frame -------------------------------------------------------
-htmt_df_ext <- data.frame(
-  Construct = rownames(htmt_mat_ext),
-  round(htmt_mat_ext, 3),
-  row.names = NULL
-)
-
-# 6. Create flextable -----------------------------------------------------------
-ft_htmt_ext <- flextable(htmt_df_ext) %>%
-  set_caption("Table X: Discriminant Validity – HTMT Matrix (External Constructs)") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", part = "all") %>%
-  border_remove() %>%
-  border_outer(border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-# 7. Add to Word document -------------------------------------------------------
-doc <- body_add_par(
-  doc,
-  "Discriminant Validity – HTMT Matrix (External Constructs)",
-  style = "heading 1"
-)
-doc <- body_add_flextable(doc, ft_htmt_ext)
-doc <- body_add_par(doc, "", style = "Normal")
-
-
-# --- 3. Item‑Level Cronbach's Alpha (External Constructs) ----------------------
-
-library(psych)
-library(dplyr)
-library(flextable)
-library(lavaan)
-
-# A.  Extract latent variables and raw data ------------------------------------
-latent_vars_ext <- lavNames(fit_external, type = "lv")
-data_used_ext   <- lavInspect(fit_external, "data")
-model_params_ext <- parameterEstimates(fit_external) %>% 
-  filter(op == "=~")
-
-# B.  Loop through constructs & indicators -------------------------------------
-item_alpha_list <- list()
-
-for (lv in latent_vars_ext) {
-  inds <- model_params_ext %>% 
-    filter(lhs == lv) %>% 
-    pull(rhs)
-  
-  for (ind in inds) {
-    remaining <- setdiff(inds, ind)     # Alpha if the current item is deleted
-    ds <- as.data.frame(data_used_ext[, remaining, drop = FALSE])
-    ds[] <- lapply(ds, function(x) as.numeric(as.character(x)))
-    
-    if (all(sapply(ds, is.numeric))) {
-      ares <- psych::alpha(ds)
-      item_alpha_list[[length(item_alpha_list) + 1]] <- data.frame(
-        Construct      = lv,
-        Item           = ind,
-        Cronbach_Alpha = round(ares$total$raw_alpha, 3),
-        stringsAsFactors = FALSE
-      )
-    }
-  }
-}
-
-final_item_alpha_df <- do.call(rbind, item_alpha_list)
-
-# C.  Create flextable ----------------------------------------------------------
-ft_item_alpha_ext <- flextable(final_item_alpha_df) %>%
-  set_caption("Table X: Item‑Level Cronbach's Alpha (External Constructs)") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", part = "all") %>%
-  border_remove() %>%
-  border_outer(border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-# D.  Append to Word document ---------------------------------------------------
-doc <- body_add_par(
-  doc,
-  "Internal Consistency Reliability – Item‑Level Cronbach's Alpha (External Constructs)",
-  style = "heading 1"
-)
-doc <- body_add_flextable(doc, ft_item_alpha_ext)
-doc <- body_add_par(doc, "", style = "Normal")
-
-# --- 4. Standardized Beta Coefficients Table (External Model) ------------------
-
-library(dplyr)
-library(flextable)
-
-# A. Extract standardized solution
-standardized_ext <- standardizedSolution(fit_external)
-
-# B. Filter only regressions (paths)
-betas_ext <- standardized_ext %>%
-  filter(op == "~") %>%
-  select(Predictor = rhs,
-         Outcome   = lhs,
-         Std_Beta  = est.std) %>%
-  mutate(Std_Beta = round(Std_Beta, 3))
-
-# C. Create flextable
-ft_betas_ext <- flextable(betas_ext) %>%
-  set_caption("Table X: Standardized Path Coefficients (External Model)") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", part = "all") %>%
-  border_remove() %>%
-  border_outer(border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-# D. Append table to Word document
-doc <- body_add_par(
-  doc,
-  "Standardized Path Coefficients – External Model",
-  style = "heading 1"
-)
-doc <- body_add_flextable(doc, ft_betas_ext)
-doc <- body_add_par(doc, "", style = "Normal")
-
-# --- Descriptive Statistics – Likert‑Scale Items (external model) -------------
-library(dplyr)
-library(psych)
-library(flextable)
-library(lavaan)
-library(tibble)
-
-# 1. Pull the raw data actually analysed (use thesisdata directly)
-likert_items <- parameterEstimates(fit_external) %>%          # or fit_external_clean
-  filter(op == "=~") %>%                                      # measurement relations
-  pull(rhs) %>% 
-  unique()
-
-likert_data <- thesisdata[ , likert_items, drop = FALSE]       # original columns
-
-# 2. Robust numeric conversion --------------------------------------------------
-verbal_levels  <- c("Strongly Disagree", "Disagree", "Neutral",
-                    "Agree", "Strongly Agree")                 # adjust if needed
-numeric_levels <- as.character(1:5)
-
-likert_num <- data.frame(
-  lapply(names(likert_data), function(var) {
-    x <- likert_data[[var]]
-    
-    # already numeric
-    if (is.numeric(x)) return(x)
-    
-    # factor with numeric levels ("1"…"5")
-    if (is.factor(x) && all(levels(x) %in% numeric_levels)) {
-      return(as.numeric(as.character(x)))
-    }
-    
-    # text / factor with verbal labels
-    x_chr <- trimws(as.character(x))
-    if (all(x_chr %in% verbal_levels | is.na(x_chr))) {
-      return(match(x_chr, verbal_levels))                      # 1…5
-    }
-    
-    # unknown coding → NA + message
-    message("Item '", var, "' has unexpected labels; recoded to NA.")
-    return(rep(NA_real_, length(x)))
-  }),
-  check.names = FALSE
-)
-names(likert_num) <- likert_items     # restore column names
-
-# 3. Drop items with all NA or no variance --------------------------------------
-keep <- sapply(names(likert_num), function(var) {
-  v <- likert_num[[var]]
-  good <- length(unique(na.omit(v))) > 1
-  if (!good) message("Dropped constant/empty item: ", var)
-  good
-})
-likert_num <- likert_num[ , keep, drop = FALSE]
-
-if (ncol(likert_num) == 0) stop("No valid numeric Likert items found.")
-
-# 4. Compute descriptive statistics --------------------------------------------
-desc_stats <- psych::describe(likert_num)[ , c("n", "mean", "sd", "skew", "kurtosis")]
-desc_stats <- round(desc_stats, 2) %>%
-  as.data.frame() %>%
-  rownames_to_column("Item")
-
-# 5. Create flextable -----------------------------------------------------------
-ft_desc <- flextable(desc_stats) %>%
-  set_caption("Table X: Descriptive Statistics of Likert‑Scale Items") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", part = "all") %>%
-  border_remove() %>%
-  border_outer(border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-# 6. Append the table to the Word document --------------------------------------
-doc <- body_add_par(doc,
-                    "Descriptive Statistics for Likert‑Scale Items (External Model)",
-                    style = "heading 1")
-doc <- body_add_flextable(doc, ft_desc)
-doc <- body_add_par(doc, "", style = "Normal")
-
-
-
-# --- Extract Structural Paths Only ---
-std_external <- standardizedSolution(fit_external) %>%
-  filter(op == "~") %>%
-  select(lhs, rhs, est.std, pvalue) %>%
-  rename(
-    Outcome = lhs,
-    Predictor = rhs,
-    `Standardized Estimate (β)` = est.std,
-    `p-value` = pvalue
-  ) %>%
-  mutate(across(`Standardized Estimate (β)`:`p-value`, ~round(., 3)))
-
-# --- Format Flextable ---
-ft_external <- flextable(std_external) %>%
-  set_caption("Table: Structural Path Coefficients – External Predictors of Actual Usage") %>%
-  autofit() %>%
-  fontsize(size = 12, part = "all") %>%
-  font(fontname = "Times New Roman", part = "all") %>%
-  flextable::align(align = "center", part = "all") %>%
-  border_remove() %>%
-  border_outer(border = fp_border(color = "black")) %>%
-  border_inner_h(border = fp_border(color = "black")) %>%
-  border_inner_v(border = fp_border(color = "black"))
-
-
-doc <- body_add_par(doc, "External Factors Model Results", style = "heading 1")
-doc <- body_add_flextable(doc, ft_external)
-doc <- body_add_par(doc, "", style = "Normal")
-
-
-# --- Save the Document ---
-print(doc, target = "EVSEM_External_Variable_Results.docx")
 
 
 #Visualization of Likert Plot

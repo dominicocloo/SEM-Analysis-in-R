@@ -76,14 +76,14 @@ thesisdata$`type_of_driver` <- factor(
              "Electric Vehicle Driver")
 )
 
-data$type_of_driver_clean <- case_when(
-  grepl("Internal Combustion Engine Vehicle driver", data$type_of_driver, ignore.case = TRUE) ~ "ICE",
-  grepl("Electric Vehicle Driver", data$type_of_driver, ignore.case = TRUE) ~ "EV",
+thesisdata$type_of_driver_clean <- case_when(
+  grepl("Internal Combustion Engine Vehicle driver", thesisdata$type_of_driver, ignore.case = TRUE) ~ "ICE",
+  grepl("Electric Vehicle Driver", thesisdata$type_of_driver, ignore.case = TRUE) ~ "EV",
   TRUE ~ NA_character_
 )
 
-ice_data <- filter(data, type_of_driver_clean == "ICE")
-ev_data <- filter(data, type_of_driver_clean == "EV")
+ice_data <- filter(thesisdata, type_of_driver_clean == "ICE")
+ev_data <- filter(thesisdata, type_of_driver_clean == "EV")
 
 
 # Define Sociodemographic Questions (applies to all respondents)
